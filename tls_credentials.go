@@ -26,6 +26,8 @@ import (
 	"crypto/x509"
 	"go.ketch.com/lib/orlop/errors"
 	"go.ketch.com/lib/orlop/log"
+	"strings"
+	"time"
 )
 
 const (
@@ -118,7 +120,28 @@ func NewServerTLSConfigContext(ctx context.Context, cfg HasTLSConfig, vault HasV
 
 	config.Certificates = append(config.Certificates, c)
 
+	config.GetConfigForClient = getConfigForClient(config)
+
 	return config, nil
+}
+
+func getConfigForClient(config *tls.Config) func(info *tls.ClientHelloInfo) (*tls.Config, error) {
+	return func(info *tls.ClientHelloInfo) (*tls.Config, error) {
+		config.VerifyPeerCertificate = func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+			opts := x509.VerifyOptions{
+				Roots:         config.ClientCAs,
+				CurrentTime:   time.Now(),
+				Intermediates: x509.NewCertPool(),
+				KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+				DNSName:       strings.Split(info.Conn.RemoteAddr().String(), ":")[0],
+			}
+
+			_, err := verifiedChains[0][0].Verify(opts)
+			return err
+		}
+
+		return config, nil
+	}
 }
 
 // NewClientTLSConfig returns a new tls.VaultConfig from the given configuration input
